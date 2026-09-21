@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: personal-whatsapp-ai-agent
+    runtime: docker
+    plan: starter
+    autoDeploy: true
+    healthCheckPath: /healthz
+    numInstances: 1
+    disk:
+      name: agent-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: WHATSAPP_ENABLED
+        value: "true"
+      - key: MEMORY_PATH
+        value: /app/data/memory.db
+      - key: MEMORY_KEY
+        sync: false
+      - key: APP_ADMIN_TOKEN
+        sync: false
+      - key: OLLAMA_API_KEY
+        sync: false
+      - key: WHATSAPP_API_KEY
+        sync: false

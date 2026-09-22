@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import Cookie, FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from ollama import ResponseError
 
@@ -113,6 +114,13 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
                 await asyncio.gather(worker, return_exceptions=True)
 
     app = FastAPI(title="Personal WhatsApp AI Agent", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[settings.dashboard_origin],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["Content-Type", "Last-Event-ID"],
+    )
 
     def require_session(session: str | None):
         record = active_session(dashboard_store, session)
@@ -187,6 +195,22 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
     def dashboard_providers(dashboard_session: str | None = Cookie(default=None)):
         require_session(dashboard_session)
         return {"providers": [provider.model_dump() for provider in dashboard_store.list_providers()]}
+
+    @app.post("/dashboard/chat")
+    async def dashboard_chat(request: Request, dashboard_session: str | None = Cookie(default=None)):
+        record = require_session(dashboard_session)
+        body = await request.json()
+        text = str(body.get("text", "")).strip()
+        if not text:
+            raise HTTPException(status_code=422, detail="text is required")
+        message = IncomingMessage(message_id=f"dashboard-{id(body)}", sender_id=record.actor, text=text)
+        events.record("message_received", message.message_id, {"source": "dashboard"})
+        result = await asyncio.to_thread(graph.invoke, {
+            "message": message, "history": [], "memory_context": {},
+            "route": "", "tool_results": [], "response": None,
+        })
+        events.record("response_ready", message.message_id, {"source": "dashboard"})
+        return result["response"]
 
     @app.post("/dashboard/providers")
     async def create_provider(request: Request, dashboard_session: str | None = Cookie(default=None)):

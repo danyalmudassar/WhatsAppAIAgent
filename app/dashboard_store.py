@@ -75,6 +75,16 @@ class DashboardStore:
             )
         return stored
 
+    def list_providers(self) -> list[ProviderConfig]:
+        with self._connect() as db:
+            rows = db.execute("SELECT config FROM dashboard_providers ORDER BY id").fetchall()
+        return [ProviderConfig.model_validate(self.codec.loads(row[0])) for row in rows]
+
+    def list_agents(self) -> list[AgentConfig]:
+        with self._connect() as db:
+            rows = db.execute("SELECT config FROM dashboard_agents ORDER BY id").fetchall()
+        return [AgentConfig.model_validate(self.codec.loads(row[0])) for row in rows]
+
     def create_session(self, record: SessionRecord) -> None:
         key = hashlib.sha256(record.id.encode()).hexdigest()
         with self._connect() as db:

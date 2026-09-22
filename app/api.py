@@ -3,11 +3,16 @@ import logging
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import Cookie, FastAPI, Header, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from ollama import ResponseError
 
+from app.auth import active_session, create_session, verify_password
 from app.config import Settings
 from app.contracts import IncomingMessage, OutgoingMessage
+from app.dashboard_models import AgentConfig, ProviderConfig
+from app.dashboard_store import DashboardStore
+from app.events import EventRecorder
 from app.graph import build_graph
 from app.llm import create_ollama_chat_model
 from app.memory import MemoryStore
@@ -20,6 +25,8 @@ logger = logging.getLogger(__name__)
 def create_app(settings: Settings | None = None, graph=None, memory=None) -> FastAPI:
     settings = settings or Settings()
     memory = memory or MemoryStore(settings.memory_path, settings.memory_key.get_secret_value())
+    dashboard_store = DashboardStore(settings.memory_path, settings.memory_key.get_secret_value())
+    events = EventRecorder(dashboard_store)
     if graph is None:
         llm = None
         if settings.ollama_api_key and settings.ollama_api_key.get_secret_value().strip():
@@ -106,6 +113,89 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
                 await asyncio.gather(worker, return_exceptions=True)
 
     app = FastAPI(title="Personal WhatsApp AI Agent", lifespan=lifespan)
+
+    def require_session(session: str | None):
+        record = active_session(dashboard_store, session)
+        if not record:
+            raise HTTPException(status_code=401, detail="login required")
+        return record
+
+    @app.post("/auth/login")
+    async def login(request: Request):
+        body = await request.json()
+        username = str(body.get("username", ""))
+        password = str(body.get("password", ""))
+        if username != settings.owner_username or not verify_password(password, settings.owner_password_hash.get_secret_value()):
+            raise HTTPException(status_code=401, detail="invalid credentials")
+        token = create_session(dashboard_store, username, settings.session_ttl_seconds)
+        response = {"status": "authenticated", "username": username}
+        from fastapi.responses import JSONResponse
+        result = JSONResponse(response)
+        result.set_cookie("dashboard_session", token, httponly=True, secure=True, samesite="lax", max_age=settings.session_ttl_seconds)
+        return result
+
+    @app.post("/auth/logout")
+    def logout(dashboard_session: str | None = Cookie(default=None)):
+        if dashboard_session:
+            dashboard_store.revoke_session(dashboard_session)
+        from fastapi.responses import JSONResponse
+        result = JSONResponse({"status": "logged_out"})
+        result.delete_cookie("dashboard_session")
+        return result
+
+    @app.get("/auth/session")
+    def session_info(dashboard_session: str | None = Cookie(default=None)):
+        record = require_session(dashboard_session)
+        return {"username": record.actor, "role": record.role, "expires_at": record.expires_at}
+
+    @app.get("/dashboard/overview")
+    def dashboard_overview(dashboard_session: str | None = Cookie(default=None)):
+        require_session(dashboard_session)
+        return {
+            "status": "degraded" if worker_error else "ready",
+            "whatsapp_enabled": settings.whatsapp_enabled,
+            "worker_error": worker_error,
+            "agents": len(dashboard_store.list_agents()),
+            "providers": len(dashboard_store.list_providers()),
+        }
+
+    @app.get("/dashboard/events")
+    def dashboard_events(cursor: int = 0, dashboard_session: str | None = Cookie(default=None)):
+        require_session(dashboard_session)
+        return {"events": [event.model_dump(mode="json") for _, event in dashboard_store.events_after(cursor)]}
+
+    @app.get("/dashboard/events/stream")
+    async def dashboard_event_stream(request: Request, dashboard_session: str | None = Cookie(default=None)):
+        require_session(dashboard_session)
+        cursor = int(request.headers.get("last-event-id", "0") or 0)
+        return StreamingResponse(events.subscribe(cursor), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    @app.get("/dashboard/agents")
+    def dashboard_agents(dashboard_session: str | None = Cookie(default=None)):
+        require_session(dashboard_session)
+        return {"agents": [agent.model_dump() for agent in dashboard_store.list_agents()]}
+
+    @app.post("/dashboard/agents")
+    async def create_agent(request: Request, dashboard_session: str | None = Cookie(default=None)):
+        record = require_session(dashboard_session)
+        agent = AgentConfig.model_validate(await request.json())
+        saved = dashboard_store.save_agent(agent)
+        events.record("config_changed", agent.id, {"action": "agent_saved", "actor": record.actor})
+        return saved
+
+    @app.get("/dashboard/providers")
+    def dashboard_providers(dashboard_session: str | None = Cookie(default=None)):
+        require_session(dashboard_session)
+        return {"providers": [provider.model_dump() for provider in dashboard_store.list_providers()]}
+
+    @app.post("/dashboard/providers")
+    async def create_provider(request: Request, dashboard_session: str | None = Cookie(default=None)):
+        record = require_session(dashboard_session)
+        body = await request.json()
+        provider = ProviderConfig.model_validate(body)
+        saved = dashboard_store.save_provider(provider, body.get("secret"))
+        events.record("config_changed", provider.id, {"action": "provider_saved", "actor": record.actor, "api_key": body.get("secret", "")})
+        return saved
 
     @app.get("/healthz")
     def health():

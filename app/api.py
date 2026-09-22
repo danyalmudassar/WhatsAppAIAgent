@@ -76,8 +76,13 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
                     messages = await adapter.receive(limit=50, timeout=25)
                 await process_messages(messages)
             except httpx.HTTPStatusError as exc:
-                worker_error = f"HTTP {exc.response.status_code}"
-                logger.error("WhatsApp polling failed with HTTP %s", exc.response.status_code)
+                detail = exc.response.text[:200].replace("\n", " ")
+                worker_error = f"HTTP {exc.response.status_code}: {detail}"
+                logger.error(
+                    "WhatsApp upstream request failed with HTTP %s: %s",
+                    exc.response.status_code,
+                    detail,
+                )
                 await asyncio.sleep(retry_seconds)
                 retry_seconds = min(retry_seconds * 2, settings.whatsapp_retry_max_seconds)
             except (httpx.TimeoutException, httpx.RequestError, RuntimeError, ValueError) as exc:

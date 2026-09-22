@@ -86,6 +86,16 @@ class DashboardStore:
             row = db.execute("SELECT record FROM dashboard_sessions WHERE id_hash=?", (key,)).fetchone()
         return SessionRecord.model_validate(self.codec.loads(row[0])) if row else None
 
+    def revoke_session(self, session_id: str) -> None:
+        key = hashlib.sha256(session_id.encode()).hexdigest()
+        record = self.get_session(session_id)
+        if record:
+            with self._connect() as db:
+                db.execute(
+                    "UPDATE dashboard_sessions SET record=? WHERE id_hash=?",
+                    (self.codec.dumps(record.model_copy(update={"revoked": True}).model_dump(mode="json")), key),
+                )
+
     def append_event(self, event: RuntimeEvent) -> int:
         with self._connect() as db:
             cursor = db.execute("INSERT INTO dashboard_events(record) VALUES (?)", (self.codec.dumps(event.model_dump(mode="json")),))

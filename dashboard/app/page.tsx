@@ -43,6 +43,8 @@ export default function Dashboard() {
     }
     setLoginError("");
     setAuthenticated(true);
+    const overviewResponse = await fetch(`${API}/dashboard/overview`, { credentials: "include" });
+    if (overviewResponse.ok) setOverview(await overviewResponse.json());
   }
 
   async function sendChat() {

@@ -139,7 +139,14 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
         response = {"status": "authenticated", "username": username}
         from fastapi.responses import JSONResponse
         result = JSONResponse(response)
-        result.set_cookie("dashboard_session", token, httponly=True, secure=True, samesite="lax", max_age=settings.session_ttl_seconds)
+        result.set_cookie(
+            "dashboard_session",
+            token,
+            httponly=True,
+            secure=settings.dashboard_origin.startswith("https://"),
+            samesite="lax",
+            max_age=settings.session_ttl_seconds,
+        )
         return result
 
     @app.post("/auth/logout")

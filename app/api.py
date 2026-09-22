@@ -60,8 +60,10 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
             try:
                 processed.append(await adapter.send(response))
             except httpx.HTTPStatusError as exc:
+                detail = exc.response.text[:200].replace("\n", " ")
                 raise RuntimeError(
-                    f"WhatsApp message delivery failed with HTTP {exc.response.status_code}"
+                    f"WhatsApp message delivery failed with HTTP "
+                    f"{exc.response.status_code}: {detail}"
                 ) from exc
         return processed
 

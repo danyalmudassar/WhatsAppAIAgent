@@ -1,3 +1,5 @@
+import httpx
+
 from app.config import Settings
 from app.contracts import OutgoingMessage
 from app.whatsapp import MockWhatsAppAdapter, OfficialWhatsAppAdapter
@@ -30,3 +32,11 @@ def test_official_adapter_parses_documented_text_message():
     assert message.sender_id == "user:50972923564215"
     assert message.text == "salam"
     assert adapter._headers()["Authorization"].startswith("Bearer ")
+
+
+def test_duplicate_message_response_is_idempotent():
+    response = httpx.Response(
+        409,
+        json={"error": {"code": OfficialWhatsAppAdapter.DUPLICATE_REQUEST_CODE}},
+    )
+    OfficialWhatsAppAdapter._raise_for_unhandled_error(response)

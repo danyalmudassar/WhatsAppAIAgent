@@ -24,6 +24,8 @@ class MockWhatsAppAdapter:
 
 
 class OfficialWhatsAppAdapter:
+    DUPLICATE_REQUEST_CODE = 1752041
+
     def __init__(self, settings: Settings, memory: MemoryStore | None = None):
         if not settings.whatsapp_enabled:
             raise ValueError("WHATSAPP_ENABLED must be true")
@@ -40,6 +42,17 @@ class OfficialWhatsAppAdapter:
             self.settings.whatsapp_auth_header: f"{scheme} {token}".strip(),
             "Content-Type": "application/json",
         }
+
+    @classmethod
+    def _raise_for_unhandled_error(cls, response: httpx.Response) -> None:
+        if response.status_code == 409:
+            try:
+                error = response.json().get("error", {})
+            except ValueError:
+                error = {}
+            if error.get("code") == cls.DUPLICATE_REQUEST_CODE:
+                return
+        response.raise_for_status()
 
     def parse(self, payload: dict[str, object]) -> IncomingMessage:
         message_id = payload.get("id")
@@ -63,7 +76,7 @@ class OfficialWhatsAppAdapter:
         params = {"offset": self.offset, "limit": min(max(limit, 1), 100), "timeout": min(max(timeout, 0), 25)}
         async with httpx.AsyncClient(timeout=timeout + 10) as client:
             response = await client.get(f"{self.settings.whatsapp_endpoint}/updates", headers=self._headers(), params=params)
-        response.raise_for_status()
+        self._raise_for_unhandled_error(response)
         if response.status_code == 204 or not response.content:
             return []
         body: dict[str, Any] = response.json()
@@ -102,5 +115,5 @@ class OfficialWhatsAppAdapter:
                 headers=self._headers(),
                 json=payload,
             )
-        response.raise_for_status()
+        self._raise_for_unhandled_error(response)
         return response.json()

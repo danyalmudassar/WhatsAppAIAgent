@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     whatsapp_retry_base_seconds: float = 2.0
     whatsapp_retry_max_seconds: float = 60.0
     max_request_bytes: int = 1_048_576
+    dashboard_origin: str = "http://localhost:3000"
+    session_ttl_seconds: int = 86_400
+    event_retention: int = 1_000
+    owner_username: str = "admin"
+    owner_password_hash: SecretStr = SecretStr("")
 
     @field_validator("memory_key")
     @classmethod
@@ -55,6 +60,20 @@ class Settings(BaseSettings):
     def validate_positive(cls, value: float) -> float:
         if value <= 0:
             raise ValueError("production limits must be positive")
+        return value
+
+    @field_validator("session_ttl_seconds", "event_retention")
+    @classmethod
+    def validate_dashboard_limits(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("dashboard limits must be positive")
+        return value
+
+    @field_validator("owner_username")
+    @classmethod
+    def validate_owner_username(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("OWNER_USERNAME must not be blank")
         return value
 
     @field_validator("whatsapp_endpoint")

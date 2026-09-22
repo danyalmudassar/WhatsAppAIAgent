@@ -72,7 +72,10 @@ class OfficialWhatsAppAdapter:
             for change in entry.get("changes", []):
                 value = change.get("value", {})
                 for message in value.get("messages", []):
-                    messages.append(self.parse(message))
+                    try:
+                        messages.append(self.parse(message))
+                    except ValueError:
+                        continue
         if isinstance(body.get("next_offset"), int):
             self.offset = body["next_offset"]
             if self.memory:

@@ -30,6 +30,7 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
         if settings.whatsapp_enabled
         else MockWhatsAppAdapter()
     )
+    poll_lock = asyncio.Lock()
     worker_error: str | None = None
 
     def require_admin(authorization: str | None) -> None:
@@ -69,7 +70,8 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
         retry_seconds = settings.whatsapp_retry_base_seconds
         while True:
             try:
-                messages = await adapter.receive(limit=50, timeout=25)
+                async with poll_lock:
+                    messages = await adapter.receive(limit=50, timeout=25)
                 await process_messages(messages)
             except httpx.HTTPStatusError as exc:
                 worker_error = f"HTTP {exc.response.status_code}"
@@ -161,7 +163,8 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
         if not settings.whatsapp_enabled:
             raise HTTPException(status_code=409, detail="WhatsApp agent is disabled")
         try:
-            messages = await adapter.receive(limit=limit, timeout=timeout)
+            async with poll_lock:
+                messages = await adapter.receive(limit=limit, timeout=timeout)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 401:
                 raise HTTPException(

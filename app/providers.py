@@ -11,7 +11,11 @@ class ChatProvider(Protocol):
 
 
 class ProviderError(RuntimeError):
-    pass
+    def __init__(self, provider_id: str, retryable: bool, safe_detail: str):
+        super().__init__(safe_detail)
+        self.provider_id = provider_id
+        self.retryable = retryable
+        self.safe_detail = safe_detail
 
 
 class OllamaProvider:
@@ -19,7 +23,7 @@ class OllamaProvider:
         self.config, self.secret = config, secret
 
     async def generate(self, messages: list[dict[str, str]]) -> str:
-        headers = {"Authorization": f"Bearer {self.secret}"} if self.secret else {}
+        headers = {"Authorization": "Bearer " + self.secret} if self.secret else {}
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
                 f"{self.config.base_url.rstrip('/')}/api/chat",
@@ -37,7 +41,7 @@ class OpenAICompatibleProvider:
         self.config, self.secret = config, secret
 
     async def generate(self, messages: list[dict[str, str]]) -> str:
-        headers = {"Authorization": f"Bearer {self.secret}"} if self.secret else {}
+        headers = {"Authorization": "Bearer " + self.secret} if self.secret else {}
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
                 f"{self.config.base_url.rstrip('/')}/chat/completions",

@@ -58,24 +58,32 @@ export default function Dashboard() {
     setOverview(summary); setAgents(agentData.agents); setProviders(providerData.providers); setAudit(auditData.audit); setEvents(eventData.events);
     const chat = await request<{ conversations: Conversation[] }>("/dashboard/conversations");
     setConversations(chat.conversations);
+    return summary;
   }
 
   useEffect(() => {
-    request<Item>("/dashboard/overview").then((data) => { setOverview(data); setAuthenticated(true); return load(); })
-      .catch((cause: Error) => { setAuthenticated(false); if (cause instanceof ApiError && cause.status !== 401) setError(cause.message); });
+    load().then(() => setAuthenticated(true))
+      .catch((cause: Error) => {
+        setAuthenticated(false);
+        if (cause instanceof ApiError && cause.status !== 401) setError(cause.message);
+      });
   }, []);
 
   useEffect(() => {
     if (!authenticated) return;
     const source = new EventSource(`${API}/dashboard/events/stream`, { withCredentials: true });
     source.onmessage = (event) => setEvents((current) => [JSON.parse(event.data) as Item, ...current].slice(0, 100));
-    source.onerror = () => setError("Live activity stream disconnected; refresh to reconnect.");
+    source.onerror = () => {
+      setError("Live activity stream disconnected; please sign in again.");
+      setAuthenticated(false);
+      source.close();
+    };
     return () => source.close();
   }, [authenticated]);
 
   async function login(event: FormEvent) {
     event.preventDefault(); setError("");
-    try { await request("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }); setAuthenticated(true); await load(); }
+    try { await request("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }); await load(); setAuthenticated(true); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Login failed"); }
   }
 

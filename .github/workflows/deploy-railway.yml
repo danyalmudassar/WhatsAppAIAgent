@@ -31,23 +31,3 @@ jobs:
           pytest -q
       - name: Build image
         run: docker build --tag personal-whatsapp-ai-agent:${{ github.sha }} .
-
-  deploy:
-    needs: quality
-    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Railway CLI
-        run: |
-          curl -fsSL https://railway.com/install.sh | sh
-          echo "$HOME/.railway/bin" >> "$GITHUB_PATH"
-      - name: Deploy
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
-          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
-        run: |
-          railway link --project "$RAILWAY_PROJECT_ID" --service "$RAILWAY_SERVICE_ID"
-          railway up --detach

@@ -11,7 +11,11 @@ class ChatProvider(Protocol):
 
 
 class ProviderError(RuntimeError):
-    pass
+    def __init__(self, provider_id: str, retryable: bool, safe_detail: str):
+        super().__init__(safe_detail)
+        self.provider_id = provider_id
+        self.retryable = retryable
+        self.safe_detail = safe_detail
 
 
 class OllamaProvider:

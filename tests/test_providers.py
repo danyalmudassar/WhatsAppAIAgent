@@ -11,3 +11,12 @@ def test_provider_registry_selects_openai_compatible_adapter(tmp_path):
     )
     adapter = provider_from_config(store, config)
     assert isinstance(adapter, OpenAICompatibleProvider)
+
+
+def test_provider_error_keeps_only_safe_details():
+    from app.providers import ProviderError
+
+    error = ProviderError("p1", retryable=True, safe_detail="provider unavailable")
+    assert error.provider_id == "p1"
+    assert error.retryable
+    assert str(error) == "provider unavailable"

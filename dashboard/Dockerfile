@@ -12,6 +12,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 RUN addgroup -S dashboard && adduser -S dashboard -G dashboard
 COPY --from=build --chown=dashboard:dashboard /app/.next/standalone ./
+COPY --from=build --chown=dashboard:dashboard /app/.next/static ./.next/static
 USER dashboard
 EXPOSE 3000
 CMD ["node","server.js"]

@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field, SecretStr, field_validator
 
@@ -78,3 +79,27 @@ class AuditEvent(BaseModel):
     resource: str
     revision: int | None = None
     result: str
+
+
+class ConversationRecord(BaseModel):
+    id: str
+    actor: str
+    agent_id: str | None = None
+    title: str = "New conversation"
+    created_at: datetime
+    updated_at: datetime
+
+
+class MessageRecord(BaseModel):
+    id: str
+    conversation_id: str
+    role: Literal["user", "assistant", "system"]
+    content: str
+    provider_id: str | None = None
+    created_at: datetime
+    complete: bool = True
+
+
+class SettingsRecord(BaseModel):
+    key: str
+    value: str

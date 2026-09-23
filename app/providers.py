@@ -19,7 +19,7 @@ class OllamaProvider:
         self.config, self.secret = config, secret
 
     async def generate(self, messages: list[dict[str, str]]) -> str:
-        headers = {"Authorization": f"Bearer {self.secret}"} if self.secret else {}
+        headers = {"Authorization": "Bearer " + self.secret} if self.secret else {}
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
                 f"{self.config.base_url.rstrip('/')}/api/chat",
@@ -37,7 +37,7 @@ class OpenAICompatibleProvider:
         self.config, self.secret = config, secret
 
     async def generate(self, messages: list[dict[str, str]]) -> str:
-        headers = {"Authorization": f"Bearer {self.secret}"} if self.secret else {}
+        headers = {"Authorization": "Bearer " + self.secret} if self.secret else {}
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
                 f"{self.config.base_url.rstrip('/')}/chat/completions",

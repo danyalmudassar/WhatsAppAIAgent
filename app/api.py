@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import secrets
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 import httpx
 from fastapi import Cookie, FastAPI, Header, HTTPException, Request
@@ -11,7 +13,7 @@ from ollama import ResponseError
 from app.auth import active_session, create_session, verify_password
 from app.config import Settings
 from app.contracts import IncomingMessage, OutgoingMessage
-from app.dashboard_models import AgentConfig, ProviderConfig
+from app.dashboard_models import AgentConfig, AuditEvent, ProviderConfig
 from app.dashboard_store import DashboardStore
 from app.events import EventRecorder
 from app.graph import build_graph
@@ -190,6 +192,20 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
         require_session(dashboard_session)
         return {"agents": [agent.model_dump() for agent in dashboard_store.list_agents()]}
 
+    @app.delete("/dashboard/agents/{agent_id}")
+    def delete_agent(agent_id: str, dashboard_session: str | None = Cookie(default=None)):
+        record = require_session(dashboard_session)
+        try:
+            dashboard_store.delete_agent(agent_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        dashboard_store.append_audit(AuditEvent(
+            id=f"audit-{secrets.token_urlsafe(8)}", timestamp=datetime.now(UTC),
+            actor=record.actor, action="delete", resource=f"agent:{agent_id}", result="ok",
+        ))
+        events.record("config_changed", agent_id, {"action": "agent_deleted"})
+        return {"status": "deleted"}
+
     @app.post("/dashboard/agents")
     async def create_agent(request: Request, dashboard_session: str | None = Cookie(default=None)):
         record = require_session(dashboard_session)
@@ -227,6 +243,25 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
         saved = dashboard_store.save_provider(provider, body.get("secret"))
         events.record("config_changed", provider.id, {"action": "provider_saved", "actor": record.actor, "api_key": body.get("secret", "")})
         return saved
+
+    @app.delete("/dashboard/providers/{provider_id}")
+    def delete_provider(provider_id: str, dashboard_session: str | None = Cookie(default=None)):
+        record = require_session(dashboard_session)
+        try:
+            dashboard_store.delete_provider(provider_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        dashboard_store.append_audit(AuditEvent(
+            id=f"audit-{secrets.token_urlsafe(8)}", timestamp=datetime.now(UTC),
+            actor=record.actor, action="delete", resource=f"provider:{provider_id}", result="ok",
+        ))
+        events.record("config_changed", provider_id, {"action": "provider_deleted"})
+        return {"status": "deleted"}
+
+    @app.get("/dashboard/audit")
+    def dashboard_audit(dashboard_session: str | None = Cookie(default=None)):
+        require_session(dashboard_session)
+        return {"audit": [event.model_dump(mode="json") for _, event in dashboard_store.audit_after()]}
 
     @app.get("/healthz")
     def health():

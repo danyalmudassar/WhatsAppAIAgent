@@ -1,63 +1,75 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_ORIGIN ?? "https://whatsappaiagent-production-63d3.up.railway.app";
+type Item = Record<string, unknown>;
+
+async function request(path: string, init?: RequestInit) {
+  const response = await fetch(`${API}${path}`, { ...init, credentials: "include", headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) } });
+  if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail ?? `Request failed (${response.status})`);
+  return response.json();
+}
 
 export default function Dashboard() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
-  const [loginError, setLoginError] = useState("");
-  const [loadError, setLoadError] = useState("");
-  const [overview, setOverview] = useState<Record<string, unknown> | null>(null);
-  const [events, setEvents] = useState<Record<string, unknown>[]>([]);
-  const [text, setText] = useState("");
+  const [error, setError] = useState("");
+  const [overview, setOverview] = useState<Item | null>(null);
+  const [agents, setAgents] = useState<Item[]>([]);
+  const [providers, setProviders] = useState<Item[]>([]);
+  const [audit, setAudit] = useState<Item[]>([]);
+  const [events, setEvents] = useState<Item[]>([]);
+  const [message, setMessage] = useState("");
   const [reply, setReply] = useState("");
+  const [tab, setTab] = useState("overview");
+
+  async function load() {
+    const [summary, agentData, providerData, auditData, eventData] = await Promise.all([
+      request("/dashboard/overview"), request("/dashboard/agents"), request("/dashboard/providers"),
+      request("/dashboard/audit"), request("/dashboard/events"),
+    ]);
+    setOverview(summary); setAgents(agentData.agents); setProviders(providerData.providers);
+    setAudit(auditData.audit); setEvents(eventData.events);
+  }
 
   useEffect(() => {
-    fetch(`${API}/dashboard/overview`, { credentials: "include" })
-      .then(async (response) => {
-        setAuthenticated(response.ok);
-        if (response.ok) setOverview(await response.json());
-      })
-      .catch(() => {
-        setLoadError("Backend se connection nahi ho saka. API URL aur CORS settings check karein.");
-        setAuthenticated(false);
-      });
+    request("/dashboard/overview").then((data) => { setOverview(data); setAuthenticated(true); return load(); })
+      .catch((cause: Error) => { setAuthenticated(false); setError(cause.message); });
   }, []);
 
   useEffect(() => {
     if (!authenticated) return;
     const source = new EventSource(`${API}/dashboard/events/stream`, { withCredentials: true });
-    source.onmessage = (event) => setEvents((current) => [JSON.parse(event.data), ...current].slice(0, 50));
+    source.onmessage = (event) => setEvents((current) => [JSON.parse(event.data), ...current].slice(0, 100));
+    source.onerror = () => setError("Live activity stream disconnected; existing events remain available.");
     return () => source.close();
   }, [authenticated]);
 
-  async function login(event: React.FormEvent) {
-    event.preventDefault();
-    const response = await fetch(`${API}/auth/login`, {
-      method: "POST",
-      credentials: "include",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({username, password}),
-    });
-    if (!response.ok) {
-      setLoginError("Login failed");
-      return;
-    }
-    setLoginError("");
-    setAuthenticated(true);
-    const overviewResponse = await fetch(`${API}/dashboard/overview`, { credentials: "include" });
-    if (overviewResponse.ok) setOverview(await overviewResponse.json());
+  async function login(event: FormEvent) {
+    event.preventDefault(); setError("");
+    try { await request("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }); setAuthenticated(true); await load(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Login failed"); }
   }
 
-  async function sendChat() {
-    const response = await fetch(`${API}/dashboard/chat`, { method: "POST", credentials: "include", headers: {"Content-Type":"application/json"}, body: JSON.stringify({text}) });
-    setReply(response.ok ? JSON.stringify(await response.json()) : "Request failed");
+  async function sendChat(event: FormEvent) {
+    event.preventDefault(); if (!message.trim()) return;
+    try { const result = await request("/dashboard/chat", { method: "POST", body: JSON.stringify({ text: message }) }); setReply(JSON.stringify(result, null, 2)); setMessage(""); }
+    catch (cause) { setReply(cause instanceof Error ? cause.message : "Chat failed"); }
   }
 
-  if (authenticated === false) return <main><form className="login card" onSubmit={login}><h1>Agent Control Center</h1><p className="muted">Sign in to manage your agent.</p>{loadError && <p className="bad">{loadError}</p>}<input className="input" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Username" autoComplete="username" /><input className="input" type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" autoComplete="current-password" /><button className="button" type="submit">Sign in</button>{loginError && <p>{loginError}</p>}</form></main>;
-  if (authenticated === null) return <main><p className="muted">Loading control center...</p></main>;
-  return <main><div className="shell"><nav className="nav"><h1>Agent Control Center</h1><a href="#overview">Overview</a><a href="#activity">Live Activity</a><a href="#chat">Chat Console</a><a href="#agents">Agents</a><a href="#providers">Providers</a><a href="#settings">Settings</a></nav><section><h2>Personal AI Workspace</h2><p className="muted">Realtime operations and agent customization</p><div id="overview" className="cards"><div className="card">Service<br/><strong className="ok">{String(overview?.status ?? "Loading")}</strong></div><div className="card">WhatsApp<br/><strong>{String(overview?.whatsapp_enabled ?? "Loading")}</strong></div><div className="card">Providers<br/><strong>{String(overview?.providers ?? 0)}</strong></div></div><div id="chat" className="card" style={{marginTop:14}}><h3>Chat Console</h3><input className="input" value={text} onChange={(event) => setText(event.target.value)} placeholder="Message your agent" /><button className="button" onClick={sendChat}>Send</button><pre>{reply}</pre></div><div id="activity" className="card" style={{marginTop:14}}><h3>Live Activity</h3>{events.length === 0 ? <p className="muted">No events yet</p> : events.map((event, index) => <div key={index}>{JSON.stringify(event)}</div>)}</div></section></div></main>;
+  async function logout() { await request("/auth/logout", { method: "POST" }); setAuthenticated(false); }
+
+  if (authenticated === null) return <main><p className="muted">Connecting to control center...</p></main>;
+  if (!authenticated) return <main><form className="login card" onSubmit={login}><h1>Agent Control Center</h1><p className="muted">Sign in to manage your agent.</p>{error && <p className="bad">{error}</p>}<input className="input" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" /><input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" /><button className="button">Sign in</button></form></main>;
+
+  return <main><div className="shell"><nav className="nav"><h1>Agent Control Center</h1>{["overview", "chat", "agents", "providers", "activity", "audit"].map((name) => <button className="navlink" key={name} onClick={() => setTab(name)}>{name}</button>)}<button className="navlink" onClick={logout}>Sign out</button></nav><section><h2>Personal AI Workspace</h2>{error && <p className="bad">{error}</p>}
+    {tab === "overview" && <><p className="muted">Realtime operations and agent customization</p><div className="cards"><div className="card">Service<br /><strong className="ok">{String(overview?.status)}</strong></div><div className="card">WhatsApp<br /><strong>{String(overview?.whatsapp_enabled)}</strong></div><div className="card">Providers<br /><strong>{String(overview?.providers)}</strong></div><div className="card">Agents<br /><strong>{String(overview?.agents)}</strong></div></div></>}
+    {tab === "chat" && <div className="card"><h3>Chat Console</h3><form onSubmit={sendChat}><input className="input" value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Message your agent" /><button className="button">Send</button></form><pre>{reply}</pre></div>}
+    {tab === "agents" && <div className="card"><h3>Agents</h3>{agents.length ? agents.map((item) => <p key={String(item.id)}><strong>{String(item.name)}</strong> · {String(item.response_language)} · revision {String(item.revision)}</p>) : <p className="muted">No agents configured.</p>}</div>}
+    {tab === "providers" && <div className="card"><h3>Providers</h3>{providers.length ? providers.map((item) => <p key={String(item.id)}><strong>{String(item.name)}</strong> · {String(item.type)} · {item.has_secret ? "secret configured" : "no secret"}</p>) : <p className="muted">No providers configured.</p>}</div>}
+    {tab === "activity" && <div className="card"><h3>Live Activity</h3>{events.map((item, index) => <p key={`${String(item.id)}-${index}`}>{String(item.type)} · {String(item.correlation_id)}</p>)}</div>}
+    {tab === "audit" && <div className="card"><h3>Audit Log</h3>{audit.length ? audit.map((item, index) => <p key={index}>{String(item.actor)} · {String(item.action)} · {String(item.resource)}</p>) : <p className="muted">No audit records.</p>}</div>}
+  </section></div></main>;
 }

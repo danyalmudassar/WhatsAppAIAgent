@@ -85,6 +85,32 @@ class DashboardStore:
             rows = db.execute("SELECT config FROM dashboard_agents ORDER BY id").fetchall()
         return [AgentConfig.model_validate(self.codec.loads(row[0])) for row in rows]
 
+    def delete_agent(self, agent_id: str, expected_revision: int | None = None) -> None:
+        with self._connect() as db:
+            row = db.execute("SELECT revision FROM dashboard_agents WHERE id=?", (agent_id,)).fetchone()
+            if not row:
+                raise KeyError("agent not found")
+            if expected_revision is not None and row[0] != expected_revision:
+                raise ValueError("agent revision conflict")
+            db.execute("DELETE FROM dashboard_agents WHERE id=?", (agent_id,))
+
+    def delete_provider(self, provider_id: str, expected_revision: int | None = None) -> None:
+        with self._connect() as db:
+            row = db.execute("SELECT revision FROM dashboard_providers WHERE id=?", (provider_id,)).fetchone()
+            if not row:
+                raise KeyError("provider not found")
+            if expected_revision is not None and row[0] != expected_revision:
+                raise ValueError("provider revision conflict")
+            db.execute("DELETE FROM dashboard_providers WHERE id=?", (provider_id,))
+
+    def audit_after(self, sequence: int = 0, limit: int = 100) -> list[tuple[int, AuditEvent]]:
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT sequence, record FROM dashboard_audit WHERE sequence>? ORDER BY sequence LIMIT ?",
+                (sequence, limit),
+            ).fetchall()
+        return [(sequence, AuditEvent.model_validate(self.codec.loads(record))) for sequence, record in rows]
+
     def create_session(self, record: SessionRecord) -> None:
         key = hashlib.sha256(record.id.encode()).hexdigest()
         with self._connect() as db:

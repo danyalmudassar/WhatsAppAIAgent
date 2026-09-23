@@ -1,8 +1,8 @@
 import hashlib
 import sqlite3
 from datetime import UTC, datetime
-from typing import Literal
 from pathlib import Path
+from typing import Literal
 
 from app.dashboard_models import (
     AgentConfig,
@@ -218,7 +218,7 @@ class DashboardStore:
             complete=complete,
         )
         with self._connect() as db:
-            cursor = db.execute(
+            db.execute(
                 "INSERT INTO dashboard_messages(conversation_id, record) VALUES (?, ?)",
                 (conversation_id, self.codec.dumps(message.model_dump(mode="json"))),
             )

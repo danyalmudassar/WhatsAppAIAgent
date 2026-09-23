@@ -1,6 +1,6 @@
 import secrets
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from app.dashboard_models import AgentConfig, ProviderConfig
 from app.dashboard_store import DashboardStore

@@ -43,3 +43,33 @@ def test_dashboard_provider_secret_is_not_returned(tmp_path):
     )
     assert response.status_code == 200
     assert "hidden" not in response.text
+
+
+def test_dashboard_agent_update_conflict_and_delete(tmp_path):
+    client = make_client(tmp_path)
+    client.post("/auth/login", json={"username": "owner", "password": "pass"})
+    payload = {"id": "a1", "name": "Assistant"}
+    created = client.post("/dashboard/agents", json=payload).json()
+    stale = {**payload, "revision": created["revision"] - 1, "name": "Changed"}
+    assert client.put("/dashboard/agents/a1", json=stale).status_code == 409
+    assert client.delete("/dashboard/agents/a1").status_code == 200
+
+
+def test_dashboard_conversation_history_route(tmp_path):
+    client = make_client(tmp_path)
+    client.post("/auth/login", json={"username": "owner", "password": "pass"})
+    created = client.post("/dashboard/conversations", json={})
+    assert created.status_code == 200
+    conversation_id = created.json()["id"]
+    history = client.get(f"/dashboard/conversations/{conversation_id}/messages")
+    assert history.status_code == 200
+    assert history.json()["messages"] == []
+
+
+def test_dashboard_audit_returns_cursor(tmp_path):
+    client = make_client(tmp_path)
+    client.post("/auth/login", json={"username": "owner", "password": "pass"})
+    client.post("/dashboard/agents", json={"id": "a1", "name": "Assistant"})
+    response = client.get("/dashboard/audit?limit=1")
+    assert response.status_code == 200
+    assert "next_cursor" in response.json()

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import secrets
 from contextlib import asynccontextmanager
@@ -14,11 +15,13 @@ from app.auth import active_session, create_session, verify_password
 from app.config import Settings
 from app.contracts import IncomingMessage, OutgoingMessage
 from app.dashboard_models import AgentConfig, AuditEvent, ProviderConfig
+from app.dashboard_services import AgentService, ChatService, ProviderService
 from app.dashboard_store import DashboardStore
 from app.events import EventRecorder
 from app.graph import build_graph
 from app.llm import create_ollama_chat_model
 from app.memory import MemoryStore
+from app.providers import ProviderError
 from app.tools import build_tool_registry
 from app.whatsapp import MockWhatsAppAdapter, OfficialWhatsAppAdapter
 
@@ -130,6 +133,10 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
             raise HTTPException(status_code=401, detail="login required")
         return record
 
+    agent_service = AgentService(dashboard_store)
+    provider_service = ProviderService(dashboard_store)
+    chat_service = ChatService(dashboard_store, provider_service)
+
     @app.post("/auth/login")
     async def login(request: Request):
         body = await request.json()
@@ -214,6 +221,27 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
         events.record("config_changed", agent.id, {"action": "agent_saved", "actor": record.actor})
         return saved
 
+    @app.put("/dashboard/agents/{agent_id}")
+    async def update_agent(agent_id: str, request: Request, dashboard_session: str | None = Cookie(default=None)):
+        record = require_session(dashboard_session)
+        body = await request.json()
+        if body.get("id", agent_id) != agent_id:
+            raise HTTPException(status_code=422, detail="agent id mismatch")
+        try:
+            saved = agent_service.save(
+                AgentConfig.model_validate({**body, "id": agent_id}),
+                expected_revision=body.get("revision"),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        dashboard_store.append_audit(AuditEvent(
+            id=f"audit-{secrets.token_urlsafe(8)}", timestamp=datetime.now(UTC),
+            actor=record.actor, action="update", resource=f"agent:{agent_id}",
+            revision=saved.revision, result="ok",
+        ))
+        events.record("config_changed", agent_id, {"action": "agent_updated", "actor": record.actor})
+        return saved
+
     @app.get("/dashboard/providers")
     def dashboard_providers(dashboard_session: str | None = Cookie(default=None)):
         require_session(dashboard_session)
@@ -226,6 +254,21 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
         text = str(body.get("text", "")).strip()
         if not text:
             raise HTTPException(status_code=422, detail="text is required")
+        if dashboard_store.list_agents() and dashboard_store.list_providers():
+            try:
+                result = await chat_service.generate(
+                    record.actor, text, body.get("conversation_id"), body.get("agent_id")
+                )
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            except RuntimeError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+            events.record("response_ready", result.conversation_id, {"provider_id": result.provider_id})
+            return {
+                "conversation_id": result.conversation_id,
+                "text": result.text,
+                "provider_id": result.provider_id,
+            }
         message = IncomingMessage(message_id=f"dashboard-{id(body)}", sender_id=record.actor, text=text)
         events.record("message_received", message.message_id, {"source": "dashboard"})
         result = await asyncio.to_thread(graph.invoke, {
@@ -235,6 +278,26 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
         events.record("response_ready", message.message_id, {"source": "dashboard"})
         return result["response"]
 
+    @app.get("/dashboard/chat/stream")
+    async def dashboard_chat_stream(
+        text: str,
+        conversation_id: str | None = None,
+        agent_id: str | None = None,
+        dashboard_session: str | None = Cookie(default=None),
+    ):
+        record = require_session(dashboard_session)
+        if not text.strip():
+            raise HTTPException(status_code=422, detail="text is required")
+
+        async def generate():
+            try:
+                result = await chat_service.generate(record.actor, text.strip(), conversation_id, agent_id)
+                yield f"event: complete\ndata: {json.dumps({'conversation_id': result.conversation_id, 'text': result.text, 'provider_id': result.provider_id})}\n\n"
+            except (KeyError, RuntimeError, ProviderError, httpx.HTTPError) as exc:
+                yield f"event: error\ndata: {json.dumps({'detail': str(exc)})}\n\n"
+
+        return StreamingResponse(generate(), media_type="text/event-stream")
+
     @app.post("/dashboard/providers")
     async def create_provider(request: Request, dashboard_session: str | None = Cookie(default=None)):
         record = require_session(dashboard_session)
@@ -243,6 +306,52 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
         saved = dashboard_store.save_provider(provider, body.get("secret"))
         events.record("config_changed", provider.id, {"action": "provider_saved", "actor": record.actor, "api_key": body.get("secret", "")})
         return saved
+
+    @app.put("/dashboard/providers/{provider_id}")
+    async def update_provider(provider_id: str, request: Request, dashboard_session: str | None = Cookie(default=None)):
+        record = require_session(dashboard_session)
+        body = await request.json()
+        if body.get("id", provider_id) != provider_id:
+            raise HTTPException(status_code=422, detail="provider id mismatch")
+        try:
+            saved = provider_service.save(
+                ProviderConfig.model_validate({**body, "id": provider_id}),
+                body.get("secret"),
+                expected_revision=body.get("revision"),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        dashboard_store.append_audit(AuditEvent(
+            id=f"audit-{secrets.token_urlsafe(8)}", timestamp=datetime.now(UTC),
+            actor=record.actor, action="update", resource=f"provider:{provider_id}",
+            revision=saved.revision, result="ok",
+        ))
+        events.record("config_changed", provider_id, {"action": "provider_updated", "actor": record.actor})
+        return saved
+
+    @app.post("/dashboard/providers/{provider_id}/test")
+    async def test_provider(provider_id: str, dashboard_session: str | None = Cookie(default=None)):
+        require_session(dashboard_session)
+        provider = next((item for item in dashboard_store.list_providers() if item.id == provider_id), None)
+        if provider is None:
+            raise HTTPException(status_code=404, detail="provider not found")
+        started = asyncio.get_running_loop().time()
+        try:
+            await provider_service.provider(provider).generate(
+                [{"role": "user", "content": "health check"}]
+            )
+        except (ProviderError, RuntimeError, httpx.HTTPError) as exc:
+            return {
+                "status": "failed",
+                "provider_id": provider_id,
+                "latency_ms": round((asyncio.get_running_loop().time() - started) * 1000),
+                "error": str(exc),
+            }
+        return {
+            "status": "ok",
+            "provider_id": provider_id,
+            "latency_ms": round((asyncio.get_running_loop().time() - started) * 1000),
+        }
 
     @app.delete("/dashboard/providers/{provider_id}")
     def delete_provider(provider_id: str, dashboard_session: str | None = Cookie(default=None)):
@@ -259,9 +368,55 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
         return {"status": "deleted"}
 
     @app.get("/dashboard/audit")
-    def dashboard_audit(dashboard_session: str | None = Cookie(default=None)):
+    def dashboard_audit(cursor: int = 0, limit: int = 100, dashboard_session: str | None = Cookie(default=None)):
         require_session(dashboard_session)
-        return {"audit": [event.model_dump(mode="json") for _, event in dashboard_store.audit_after()]}
+        records = dashboard_store.audit_after(cursor, min(limit, 100))
+        return {
+            "audit": [event.model_dump(mode="json") for _, event in records],
+            "next_cursor": records[-1][0] if records else cursor,
+        }
+
+    @app.get("/dashboard/conversations")
+    def dashboard_conversations(dashboard_session: str | None = Cookie(default=None)):
+        record = require_session(dashboard_session)
+        return {"conversations": [item.model_dump(mode="json") for item in dashboard_store.list_conversations(record.actor)]}
+
+    @app.post("/dashboard/conversations")
+    async def create_conversation(request: Request, dashboard_session: str | None = Cookie(default=None)):
+        record = require_session(dashboard_session)
+        body = await request.json()
+        conversation_id = body.get("id") or f"conversation-{secrets.token_urlsafe(8)}"
+        conversation = dashboard_store.create_conversation(conversation_id, record.actor, body.get("agent_id"))
+        return conversation
+
+    @app.get("/dashboard/conversations/{conversation_id}/messages")
+    def conversation_messages(
+        conversation_id: str,
+        cursor: int = 0,
+        limit: int = 100,
+        dashboard_session: str | None = Cookie(default=None),
+    ):
+        record = require_session(dashboard_session)
+        conversation = dashboard_store.get_conversation(conversation_id)
+        if conversation is None or conversation.actor != record.actor:
+            raise HTTPException(status_code=404, detail="conversation not found")
+        messages, next_cursor = dashboard_store.list_messages(conversation_id, cursor, min(limit, 100))
+        return {"messages": [item.model_dump(mode="json") for item in messages], "next_cursor": next_cursor}
+
+    @app.get("/dashboard/settings")
+    def dashboard_settings(dashboard_session: str | None = Cookie(default=None)):
+        require_session(dashboard_session)
+        return {"settings": {}}
+
+    @app.put("/dashboard/settings")
+    async def update_dashboard_settings(request: Request, dashboard_session: str | None = Cookie(default=None)):
+        record = require_session(dashboard_session)
+        body = await request.json()
+        for key, value in body.items():
+            if key in {"default_agent_id"}:
+                dashboard_store.set_setting(key, str(value))
+        events.record("config_changed", record.actor, {"action": "settings_updated", "actor": record.actor})
+        return {"status": "updated"}
 
     @app.get("/healthz")
     def health():

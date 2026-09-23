@@ -264,3 +264,12 @@ class DashboardStore:
                 "SELECT record FROM dashboard_settings WHERE key=?", (key,)
             ).fetchone()
         return SettingsRecord.model_validate(self.codec.loads(row[0])).value if row else None
+
+    def list_settings(self) -> dict[str, str]:
+        with self._connect() as db:
+            rows = db.execute("SELECT record FROM dashboard_settings ORDER BY key").fetchall()
+        return {
+            setting.key: setting.value
+            for row in rows
+            for setting in [SettingsRecord.model_validate(self.codec.loads(row[0]))]
+        }

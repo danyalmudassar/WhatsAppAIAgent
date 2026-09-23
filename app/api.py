@@ -56,6 +56,8 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
             if not memory.mark_event_if_new(message.message_id):
                 continue
             try:
+                events.record("message_received", message.message_id, {"source": "whatsapp"})
+                events.record("agent_selected", message.message_id, {"source": "whatsapp"})
                 result = await asyncio.to_thread(
                     graph.invoke,
                     {
@@ -71,7 +73,9 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
                 raise RuntimeError("Ollama Cloud rejected OLLAMA_API_KEY") from exc
             response = result["response"].model_copy(update={"recipient_id": message.sender_id})
             try:
+                events.record("response_ready", message.message_id, {"source": "whatsapp"})
                 processed.append(await adapter.send(response))
+                events.record("message_delivered", message.message_id, {"source": "whatsapp"})
             except httpx.HTTPStatusError as exc:
                 detail = exc.response.text[:200].replace("\n", " ")
                 raise RuntimeError(
@@ -406,7 +410,7 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
     @app.get("/dashboard/settings")
     def dashboard_settings(dashboard_session: str | None = Cookie(default=None)):
         require_session(dashboard_session)
-        return {"settings": {}}
+        return {"settings": dashboard_store.list_settings()}
 
     @app.put("/dashboard/settings")
     async def update_dashboard_settings(request: Request, dashboard_session: str | None = Cookie(default=None)):

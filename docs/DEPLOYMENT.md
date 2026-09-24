@@ -17,7 +17,13 @@ https://whatsappaiagent-production-63d3.up.railway.app
 ## Optional decision router
 
 Decision routing production chat generation ko replace nahi karti. Enable it
-only after local smoke tests pass:
+only after local smoke tests pass. On CPU-only hosts, install a CPU PyTorch
+wheel before installing Laya so pip does not select CUDA runtime packages:
+
+```bash
+.venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu 'torch>=2.0'
+.venv/bin/pip install -e '.[decision-local]' --no-deps
+```
 
 ```env
 DECISION_ROUTER_ENABLED=true
@@ -25,7 +31,7 @@ DECISION_BACKENDS=laya,openjev,jev
 DECISION_TIMEOUT_SECONDS=2.0
 DECISION_CONFIDENCE_THRESHOLD=0.75
 LAYA_MODEL=convaiinnovations/laya-multilingual
-OPENJEV_URL=
+OPENJEV_URL=https://api.codiv.ai
 JEV_URL=
 JEV_API_KEY=
 ```

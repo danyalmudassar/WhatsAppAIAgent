@@ -38,6 +38,7 @@ async def test_openjev_adapter_normalizes_typed_response():
     backend = OpenJevBackend(
         "http://openjev.test",
         timeout=1,
+        endpoint="/decide",
         transport=httpx.MockTransport(handler),
     )
     result = await backend.decide(valid_request())
@@ -52,6 +53,7 @@ async def test_jev_adapter_returns_auth_failure_without_exposing_key():
         "https://jev.test",
         "secret-value",
         timeout=1,
+        endpoint="/decide",
         transport=httpx.MockTransport(lambda request: httpx.Response(401)),
     )
 
@@ -66,6 +68,7 @@ async def test_openjev_adapter_rejects_missing_answers():
     backend = OpenJevBackend(
         "http://openjev.test",
         timeout=1,
+        endpoint="/decide",
         transport=httpx.MockTransport(lambda request: httpx.Response(200, json={})),
     )
 

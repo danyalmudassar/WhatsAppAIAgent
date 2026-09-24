@@ -92,11 +92,15 @@ class _HttpDecisionBackend:
         timeout: float,
         *,
         api_key: str | None = None,
+        endpoint: str = "/v1/systemone",
+        model: str = "openjev-latest",
         transport: httpx.AsyncBaseTransport | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.api_key = api_key
+        self.endpoint = endpoint
+        self.model = model
         self.transport = transport
 
     async def decide(self, request: DecisionRequest) -> DecisionResponse:
@@ -108,9 +112,12 @@ class _HttpDecisionBackend:
                 transport=self.transport,
             ) as client:
                 response = await client.post(
-                    f"{self.base_url}/decide",
+                    f"{self.base_url}{self.endpoint}",
                     headers=headers,
-                    json=request.model_dump(mode="json"),
+                    json={
+                        "model": self.model,
+                        **request.model_dump(mode="json"),
+                    },
                 )
         except httpx.TimeoutException as exc:
             raise BackendTimeoutError("decision backend timed out") from exc
@@ -145,9 +152,18 @@ class JevBackend(_HttpDecisionBackend):
         api_key: str,
         timeout: float,
         *,
+        endpoint: str = "/v1/systemone",
+        model: str = "jev-latest",
         transport: httpx.AsyncBaseTransport | None = None,
     ):
-        super().__init__(base_url, timeout, api_key=api_key, transport=transport)
+        super().__init__(
+            base_url,
+            timeout,
+            api_key=api_key,
+            endpoint=endpoint,
+            model=model,
+            transport=transport,
+        )
 
 
 class LayaBackend:

@@ -32,7 +32,10 @@ abhi bhi conversational Roman Urdu response generate karta hai. Local Laya
 install aur CPU smoke test:
 
 ```bash
-.venv/bin/pip install -e '.[decision-local]'
+# CPU-only PyTorch avoids downloading CUDA runtimes on this machine.
+.venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu 'torch>=2.0'
+.venv/bin/pip install -e '.[decision-local]' --no-deps
+.venv/bin/pip install 'transformers>=4.48' 'safetensors>=0.4' 'huggingface-hub>=0.20' 'numpy>=1.20'
 OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 .venv/bin/python scripts/test_laya.py
 ```
 
@@ -40,8 +43,11 @@ OpenJev ko separate environment ya HTTP service ke taur par test karein:
 
 ```bash
 .venv/bin/python scripts/test_openjev.py --mock
-OPENJEV_URL=http://127.0.0.1:PORT .venv/bin/python scripts/test_openjev.py
+OPENJEV_URL=https://api.codiv.ai .venv/bin/python scripts/test_openjev.py
 ```
+
+OpenJev/Codiv uses `POST /v1/systemone` and the default model is
+`openjev-latest`. A self-hosted server can use the same wire contract.
 
 Benchmark output hamesha `local`, `mock`, ya `live` mode label karta hai:
 

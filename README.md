@@ -25,6 +25,36 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 Generated key ko `.env` ke `MEMORY_KEY` mein rakhein aur `OLLAMA_API_KEY`
 mein apni Ollama Cloud key set karein. Secrets ko git mein commit na karein.
 
+## System One decision router
+
+Decision models routing aur risk decisions ke liye optional layer hain; Ollama
+abhi bhi conversational Roman Urdu response generate karta hai. Local Laya
+install aur CPU smoke test:
+
+```bash
+.venv/bin/pip install -e '.[decision-local]'
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 .venv/bin/python scripts/test_laya.py
+```
+
+OpenJev ko separate environment ya HTTP service ke taur par test karein:
+
+```bash
+.venv/bin/python scripts/test_openjev.py --mock
+OPENJEV_URL=http://127.0.0.1:PORT .venv/bin/python scripts/test_openjev.py
+```
+
+Benchmark output hamesha `local`, `mock`, ya `live` mode label karta hai:
+
+```bash
+.venv/bin/python scripts/benchmark_decisions.py --iterations 10 --mock
+```
+
+Jev closed-source remote backend hai; local weights install nahi hoti. Live Jev
+test ke liye `JEV_URL` aur `JEV_API_KEY` explicitly configure karna hoga.
+Decision router unavailable ho to agent fabricated confidence nahi banata aur
+high-risk/ambiguous requests ko review ke liye mark karta hai. Coding-agent
+MCP aur HTTP examples `docs/decision-router-agents.md` mein hain.
+
 ## Run and test
 
 ```bash

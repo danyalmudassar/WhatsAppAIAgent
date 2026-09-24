@@ -4,6 +4,14 @@ Yeh local-first LangChain/LangGraph agent hai jo Ollama Cloud ko primary model
 ke taur par use karta hai, encrypted local SQLite memory rakhta hai, aur Roman
 Urdu mein jawab deta hai.
 
+## Response language
+
+Agent responses natural, balanced Roman Urdu mein Latin script mein aati hain.
+Zaroori technical terms, product names, commands, URLs, filenames, identifiers,
+error codes aur API names English mein rehne dene chahiyein jab is se jawab
+clear aur direct banta hai. Output ko automatic translation ya meaning-changing
+post-processing ke zariye modify nahi kiya jata.
+
 ## Local setup
 
 ```bash

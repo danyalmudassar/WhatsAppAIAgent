@@ -26,8 +26,14 @@ def build_graph(memory: MemoryStore, tools: dict[str, object], llm=None):
         route = state["route"]
         if llm is not None:
             prompt = (
-                "Aap ek personal AI agent hain. Roman Urdu mein concise jawab dein. "
-                "Contact data disclose na karein aur unexecuted action ka dawa na karein.\n"
+                "Aap ek personal AI agent hain. Natural aur balanced Roman Urdu mein "
+                "short, clear jawab dein. Latin/ASCII script use karein; Urdu script na "
+                "likhein. Urdu grammar ke sath zaroori English technical terms, product "
+                "names, commands, code, URLs, filenames aur error codes ko bilkul "
+                "preserve karein. Literal translation, filler, repeated conclusion aur "
+                "unnecessary headings se bachein. User ke tone ke mutabiq respectful aur "
+                "direct rahen. Contact data disclose na karein aur unexecuted action ka "
+                "dawa na karein.\n"
                 f"Role: {route}\nUser: {state['message'].text}"
             )
             try:

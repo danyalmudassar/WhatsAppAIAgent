@@ -157,7 +157,9 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
             token,
             httponly=True,
             secure=settings.dashboard_origin.startswith("https://"),
-            samesite="lax",
+            # The dashboard calls this API from a different origin. `None`
+            # ensures browsers send the session cookie on credentialed fetches.
+            samesite="none",
             max_age=settings.session_ttl_seconds,
         )
         return result

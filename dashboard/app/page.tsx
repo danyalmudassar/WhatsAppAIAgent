@@ -74,9 +74,9 @@ export default function Dashboard() {
     const source = new EventSource(`${API}/dashboard/events/stream`, { withCredentials: true });
     source.onmessage = (event) => setEvents((current) => [JSON.parse(event.data) as Item, ...current].slice(0, 100));
     source.onerror = () => {
-      setError("Live activity stream disconnected; please sign in again.");
-      setAuthenticated(false);
-      source.close();
+      // EventSource reconnects automatically. A transient proxy/network
+      // disconnect must not invalidate an otherwise valid dashboard session.
+      setError("Live activity stream reconnecting...");
     };
     return () => source.close();
   }, [authenticated]);

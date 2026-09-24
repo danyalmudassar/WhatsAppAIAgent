@@ -25,6 +25,48 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 Generated key ko `.env` ke `MEMORY_KEY` mein rakhein aur `OLLAMA_API_KEY`
 mein apni Ollama Cloud key set karein. Secrets ko git mein commit na karein.
 
+## System One decision router
+
+Decision models routing aur risk decisions ke liye optional layer hain; Ollama
+abhi bhi conversational Roman Urdu response generate karta hai. Local Laya
+install aur CPU smoke test:
+
+```bash
+# CPU-only PyTorch avoids downloading CUDA runtimes on this machine.
+.venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu 'torch>=2.0'
+.venv/bin/pip install -e '.[decision-local]' --no-deps
+.venv/bin/pip install 'transformers>=4.48' 'safetensors>=0.4' 'huggingface-hub>=0.20' 'numpy>=1.20'
+OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 .venv/bin/python scripts/test_laya.py
+```
+
+OpenJev ko separate environment ya HTTP service ke taur par test karein:
+
+```bash
+.venv/bin/python scripts/test_openjev.py --mock
+OPENJEV_URL=https://api.codiv.ai .venv/bin/python scripts/test_openjev.py
+```
+
+OpenJev/Codiv uses `POST /v1/systemone` and the default model is
+`openjev-latest`. A self-hosted server can use the same wire contract.
+
+Benchmark output hamesha `local`, `mock`, ya `live` mode label karta hai:
+
+```bash
+.venv/bin/python scripts/benchmark_decisions.py --iterations 10 --mock
+```
+
+Jev closed-source remote backend hai; local weights install nahi hoti. Live Jev
+test ke liye `JEV_URL` aur `JEV_API_KEY` explicitly configure karna hoga.
+Optional compatible SDK install karne ke liye:
+
+```bash
+.venv/bin/pip install -e '.[decision-jev]'
+```
+
+Decision router unavailable ho to agent fabricated confidence nahi banata aur
+high-risk/ambiguous requests ko review ke liye mark karta hai. Coding-agent
+MCP aur HTTP examples `docs/decision-router-agents.md` mein hain.
+
 ## Run and test
 
 ```bash

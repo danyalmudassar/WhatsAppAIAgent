@@ -14,6 +14,38 @@ The backend service is:
 https://whatsappaiagent-production-63d3.up.railway.app
 ```
 
+## Optional decision router
+
+Decision routing production chat generation ko replace nahi karti. Enable it
+only after local smoke tests pass. On CPU-only hosts, install a CPU PyTorch
+wheel before installing Laya so pip does not select CUDA runtime packages:
+
+```bash
+.venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu 'torch>=2.0'
+.venv/bin/pip install -e '.[decision-local]' --no-deps
+```
+
+```env
+DECISION_ROUTER_ENABLED=true
+DECISION_BACKENDS=laya,openjev,jev
+DECISION_TIMEOUT_SECONDS=2.0
+DECISION_CONFIDENCE_THRESHOLD=0.75
+LAYA_MODEL=convaiinnovations/laya-multilingual
+OPENJEV_URL=https://api.codiv.ai
+JEV_URL=
+JEV_API_KEY=
+```
+
+The Jev-compatible `typesafe-sdk` is optional and can be installed with
+`pip install -e '.[decision-jev]'`; local Jev weights are not part of this
+project.
+
+Keep Laya/OpenJev model dependencies in an isolated sidecar environment when
+their packages are not part of the production image. Use one authenticated
+decision endpoint and never pass backend credentials to Copilot, Antigravity,
+or another coding agent. Treat `review_required=true` as a mandatory human
+approval gate.
+
 ## Dashboard service
 
 Deploy the `dashboard/` directory as a separate Railway service. Railway

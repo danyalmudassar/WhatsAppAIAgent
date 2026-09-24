@@ -17,6 +17,9 @@ from app.contracts import IncomingMessage, OutgoingMessage
 from app.dashboard_models import AgentConfig, AuditEvent, ProviderConfig
 from app.dashboard_services import AgentService, ChatService, ProviderService
 from app.dashboard_store import DashboardStore
+from app.decision_backends import JevBackend, LayaBackend, OpenJevBackend
+from app.decision_models import DecisionErrorResponse, DecisionRequest
+from app.decision_router import DecisionRouter
 from app.events import EventRecorder
 from app.graph import build_graph
 from app.llm import create_ollama_chat_model
@@ -28,7 +31,7 @@ from app.whatsapp import MockWhatsAppAdapter, OfficialWhatsAppAdapter
 logger = logging.getLogger(__name__)
 
 
-def create_app(settings: Settings | None = None, graph=None, memory=None) -> FastAPI:
+def create_app(settings: Settings | None = None, graph=None, memory=None, decision_router=None) -> FastAPI:
     settings = settings or Settings()
     memory = memory or MemoryStore(settings.memory_path, settings.memory_key.get_secret_value())
     dashboard_store = DashboardStore(settings.memory_path, settings.memory_key.get_secret_value())
@@ -38,6 +41,29 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
         if settings.ollama_api_key and settings.ollama_api_key.get_secret_value().strip():
             llm = create_ollama_chat_model(settings)
         graph = build_graph(memory, build_tool_registry(memory, settings.workspace_root), llm=llm)
+    if decision_router is None and settings.decision_router_enabled:
+        backends = []
+        for backend_name in settings.decision_backends.split(","):
+            backend_name = backend_name.strip().lower()
+            if backend_name == "laya":
+                backends.append(LayaBackend(settings.laya_model, settings.decision_timeout_seconds))
+            elif backend_name == "openjev" and settings.openjev_url:
+                backends.append(
+                    OpenJevBackend(settings.openjev_url, settings.decision_timeout_seconds)
+                )
+            elif backend_name == "jev" and settings.jev_url and settings.jev_api_key:
+                backends.append(
+                    JevBackend(
+                        settings.jev_url,
+                        settings.jev_api_key.get_secret_value(),
+                        settings.decision_timeout_seconds,
+                    )
+                )
+        decision_router = DecisionRouter(
+            backends,
+            timeout_seconds=settings.decision_timeout_seconds,
+            confidence_threshold=settings.decision_confidence_threshold,
+        )
     adapter = (
         OfficialWhatsAppAdapter(settings, memory)
         if settings.whatsapp_enabled
@@ -137,6 +163,16 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
             raise HTTPException(status_code=401, detail="login required")
         return record
 
+    def require_decision_auth(
+        authorization: str | None,
+        dashboard_session: str | None,
+    ) -> None:
+        if dashboard_session and active_session(dashboard_store, dashboard_session):
+            return
+        if authorization == "******":
+            return
+        raise HTTPException(status_code=401, detail="decision authorization required")
+
     agent_service = AgentService(dashboard_store)
     provider_service = ProviderService(dashboard_store)
     chat_service = ChatService(dashboard_store, provider_service)
@@ -188,6 +224,25 @@ def create_app(settings: Settings | None = None, graph=None, memory=None) -> Fas
             "agents": len(dashboard_store.list_agents()),
             "providers": len(dashboard_store.list_providers()),
         }
+
+    @app.post("/decide")
+    async def decide(
+        payload: DecisionRequest,
+        authorization: str | None = Header(default=None),
+        dashboard_session: str | None = Cookie(default=None),
+    ):
+        require_decision_auth(authorization, dashboard_session)
+        if decision_router is None:
+            return DecisionErrorResponse(
+                answers={},
+                confidence=None,
+                backend=None,
+                latency_ms=0.0,
+                review_required=True,
+                reason_code="backend_unavailable",
+                error="Decision router is disabled",
+            )
+        return await decision_router.decide(payload)
 
     @app.get("/dashboard/events")
     def dashboard_events(cursor: int = 0, dashboard_session: str | None = Cookie(default=None)):

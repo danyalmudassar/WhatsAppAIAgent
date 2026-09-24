@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     event_retention: int = 1_000
     owner_username: str = "admin"
     owner_password_hash: SecretStr = SecretStr("")
+    decision_router_enabled: bool = False
+    decision_backends: str = "laya,openjev,jev"
+    decision_timeout_seconds: float = 2.0
+    decision_confidence_threshold: float = 0.75
+    laya_model: str = "convaiinnovations/laya-multilingual"
+    openjev_url: str = ""
+    jev_url: str = ""
+    jev_api_key: SecretStr | None = None
 
     @field_validator("memory_key")
     @classmethod
@@ -81,4 +89,18 @@ class Settings(BaseSettings):
     def validate_whatsapp_endpoint(cls, value: str) -> str:
         if not value.startswith(("https://", "http://")):
             raise ValueError("WHATSAPP_ENDPOINT must be an HTTP(S) URL")
+        return value
+
+    @field_validator("decision_timeout_seconds")
+    @classmethod
+    def validate_decision_timeout(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("DECISION_TIMEOUT_SECONDS must be positive")
+        return value
+
+    @field_validator("decision_confidence_threshold")
+    @classmethod
+    def validate_decision_threshold(cls, value: float) -> float:
+        if not 0 <= value <= 1:
+            raise ValueError("DECISION_CONFIDENCE_THRESHOLD must be between 0 and 1")
         return value

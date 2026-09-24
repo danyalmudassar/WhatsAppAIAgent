@@ -41,7 +41,11 @@ async def run(url: str, mock: bool) -> int:
         mode = "live"
 
     try:
-        result = await OpenJevBackend(url or "http://mock", 5, transport=transport).decide(request())
+        result = await OpenJevBackend(
+            url or "http://mock",
+            5,
+            transport=transport,
+        ).decide(request())
     except (httpx.HTTPError, OSError, RuntimeError, TypeError, ValueError) as exc:
         print(f"status=failed mode={mode} error={type(exc).__name__}:{exc}")
         return 1

@@ -57,6 +57,12 @@ Benchmark output hamesha `local`, `mock`, ya `live` mode label karta hai:
 
 Jev closed-source remote backend hai; local weights install nahi hoti. Live Jev
 test ke liye `JEV_URL` aur `JEV_API_KEY` explicitly configure karna hoga.
+Optional compatible SDK install karne ke liye:
+
+```bash
+.venv/bin/pip install -e '.[decision-jev]'
+```
+
 Decision router unavailable ho to agent fabricated confidence nahi banata aur
 high-risk/ambiguous requests ko review ke liye mark karta hai. Coding-agent
 MCP aur HTTP examples `docs/decision-router-agents.md` mein hain.

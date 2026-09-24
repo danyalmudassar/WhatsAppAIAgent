@@ -36,6 +36,10 @@ JEV_URL=
 JEV_API_KEY=
 ```
 
+The Jev-compatible `typesafe-sdk` is optional and can be installed with
+`pip install -e '.[decision-jev]'`; local Jev weights are not part of this
+project.
+
 Keep Laya/OpenJev model dependencies in an isolated sidecar environment when
 their packages are not part of the production image. Use one authenticated
 decision endpoint and never pass backend credentials to Copilot, Antigravity,

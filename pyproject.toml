@@ -21,6 +21,7 @@ dependencies = [
 dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.8"]
 decision-local = ["laya>=0.1"]
 decision-mcp = ["mcp>=1.0"]
+decision-jev = ["typesafe-sdk>=0.7"]
 
 [project.scripts]
 agent-api = "app.cli:main"

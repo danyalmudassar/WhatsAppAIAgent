@@ -2,7 +2,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-
 QuestionType = Literal["choice", "score", "noul", "boolean", "number", "text"]
 BackendName = Literal["laya", "openjev", "jev", "mock"]
 DecisionReasonCode = Literal[

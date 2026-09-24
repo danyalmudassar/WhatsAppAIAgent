@@ -3,6 +3,8 @@ from typing import Literal, TypedDict
 
 from pydantic import BaseModel, Field
 
+from app.decision_models import DecisionResponse
+
 
 class IncomingMessage(BaseModel):
     message_id: str
@@ -35,3 +37,4 @@ class AgentState(TypedDict):
     route: str
     tool_results: list[ToolResult]
     response: OutgoingMessage | None
+    decision: DecisionResponse | None

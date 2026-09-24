@@ -1,6 +1,15 @@
+import asyncio
+
 from langgraph.graph import END, StateGraph
 
 from app.contracts import AgentState, IncomingMessage, OutgoingMessage
+from app.decision_backends import (
+    BackendAuthError,
+    BackendProtocolError,
+    BackendTimeoutError,
+    BackendUnavailableError,
+)
+from app.decision_models import DecisionErrorResponse, DecisionRequest
 from app.memory import MemoryStore
 from app.policy import apply_response_policy
 
@@ -14,11 +23,80 @@ def _route(text: str) -> str:
     return "personal_assistant"
 
 
-def build_graph(memory: MemoryStore, tools: dict[str, object], llm=None):
+def build_graph(memory: MemoryStore, tools: dict[str, object], llm=None, decision_router=None):
     def load_memory(state: AgentState):
         return {"memory_context": {"profile": memory.get_profile()}}
 
+    def decision_node(state: AgentState):
+        if decision_router is None:
+            return {
+                "decision": DecisionErrorResponse(
+                    answers={},
+                    confidence=None,
+                    backend=None,
+                    latency_ms=0.0,
+                    review_required=True,
+                    reason_code="backend_unavailable",
+                    error="Decision router is disabled",
+                )
+            }
+        request = DecisionRequest(
+            state={"body": state["message"].text},
+            questions={
+                "intent": {
+                    "type": "choice",
+                    "instructions": "Choose the workflow for this message.",
+                    "criteria": {
+                        "personal_assistant": "tasks, reminders, profile",
+                        "researcher": "research, sources, comparison",
+                        "developer": "code, errors, debugging",
+                    },
+                },
+                "urgency": {
+                    "type": "score",
+                    "instructions": "How urgent is this?",
+                    "criteria": ["normal", "soon", "blocking"],
+                },
+                "escalation": {
+                    "type": "noul",
+                    "instructions": "Does this require human review?",
+                },
+                "language": {
+                    "type": "choice",
+                    "instructions": "Preferred response language.",
+                    "criteria": {"roman_urdu": "Roman Urdu", "english": "English"},
+                },
+            },
+        )
+        try:
+            return {"decision": asyncio.run(decision_router.decide(request))}
+        except (
+            BackendAuthError,
+            BackendProtocolError,
+            BackendTimeoutError,
+            BackendUnavailableError,
+            RuntimeError,
+            TimeoutError,
+            ValueError,
+        ) as exc:
+            return {
+                "decision": DecisionErrorResponse(
+                    answers={},
+                    confidence=None,
+                    backend=None,
+                    latency_ms=0.0,
+                    review_required=True,
+                    reason_code="backend_unavailable",
+                    error=f"Decision router unavailable: {type(exc).__name__}",
+                )
+            }
+
     def supervisor(state: AgentState):
+        decision = state.get("decision")
+        if decision and not decision.review_required:
+            intent = decision.answers.get("intent")
+            if intent and intent.value in {"personal_assistant", "researcher", "developer"}:
+                return {"route": intent.value}
         return {"route": _route(state["message"].text)}
 
     def role_node(state: AgentState):
@@ -57,10 +135,17 @@ def build_graph(memory: MemoryStore, tools: dict[str, object], llm=None):
         return {}
 
     graph = StateGraph(AgentState)
-    for name, node in (("load_memory", load_memory), ("supervisor", supervisor), ("role", role_node), ("persist", persist_summary)):
+    for name, node in (
+        ("load_memory", load_memory),
+        ("decision", decision_node),
+        ("supervisor", supervisor),
+        ("role", role_node),
+        ("persist", persist_summary),
+    ):
         graph.add_node(name, node)
     graph.set_entry_point("load_memory")
-    graph.add_edge("load_memory", "supervisor")
+    graph.add_edge("load_memory", "decision")
+    graph.add_edge("decision", "supervisor")
     graph.add_edge("supervisor", "role")
     graph.add_edge("role", "persist")
     graph.add_edge("persist", END)
@@ -75,4 +160,5 @@ def local_message(text: str, message_id: str = "local-1") -> dict:
         "route": "",
         "tool_results": [],
         "response": None,
+        "decision": None,
     }
